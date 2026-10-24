@@ -1,0 +1,410 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farming Robot Controller</title>
+<style>
+  :root {
+    font-family: Arial, sans-serif;
+    color: #e9f2ef;
+    background: #101a19;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; }
+  main { max-width: 1000px; margin: auto; }
+  h1 { margin-bottom: 6px; }
+  .muted { color: #aabdb6; }
+  .panel {
+    background: #1b2a27;
+    border: 1px solid #344b43;
+    border-radius: 15px;
+    padding: 16px;
+    margin: 14px 0;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button, input {
+    font: inherit;
+    border-radius: 9px;
+    padding: 12px;
+  }
+  button {
+    cursor: pointer;
+    border: 1px solid #526e62;
+    background: #29483b;
+    color: white;
+    min-width: 85px;
+  }
+  button:hover { background: #37664d; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .danger { background: #762f32; }
+  .danger:hover { background: #963e42; }
+  .primary { background: #16815a; }
+  .status { font-weight: bold; }
+  .connected { color: #66e5a1; }
+  .disconnected { color: #ff9b9b; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+  }
+  .pad {
+    display: grid;
+    grid-template-columns: repeat(3, 76px);
+    justify-content: center;
+    gap: 8px;
+    margin: 15px 0;
+  }
+  .pad button { height: 60px; font-size: 22px; }
+  .empty { visibility: hidden; }
+  .metric { font-size: 25px; font-weight: bold; }
+  #log {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 300px;
+    overflow: auto;
+    background: #09110f;
+    padding: 12px;
+    border-radius: 9px;
+    font: 13px/1.6 monospace;
+  }
+  input { background: #101a19; color: white; border: 1px solid #526e62; }
+  .small { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🌱 Farming Robot</h1>
+  <div class="muted">BLE manual control · Soil monitoring · Water pump</div>
+
+  <section class="panel">
+    <div class="row">
+      <button id="connect" class="primary">Connect Bluetooth</button>
+      <button id="disconnect">Disconnect</button>
+      <button id="statusBtn" disabled>Refresh Status</button>
+      <button id="stop" class="danger" disabled>STOP</button>
+    </div>
+    <p>Connection: <span id="connection" class="status disconnected">Disconnected</span></p>
+    <p class="muted small">Use Chrome over localhost or HTTPS. Keep the phone terminal disconnected during testing.</p>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h3>Manual movement</h3>
+      <p class="muted small">Use arrow keys or these buttons. Stop with Space.</p>
+      <div class="pad">
+        <span class="empty"></span>
+        <button data-move="FORWARD">▲</button>
+        <span class="empty"></span>
+        <button data-move="LEFT">◀</button>
+        <button id="padStop" class="danger">■</button>
+        <button data-move="RIGHT">▶</button>
+        <span class="empty"></span>
+        <button data-move="BACKWARD">▼</button>
+        <span class="empty"></span>
+      </div>
+      <p id="movement" class="muted">Movement: stopped</p>
+    </section>
+
+    <section class="panel">
+      <h3>Water pump</h3>
+      <div class="row">
+        <button id="waterOn" disabled>Water ON</button>
+        <button id="waterOff" class="danger" disabled>Water OFF</button>
+      </div>
+      <p id="waterState">Pump state: unknown</p>
+      <p class="muted small">Use only after verifying relay polarity and pump wiring.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Soil moisture</h3>
+      <div class="metric" id="moisture">--%</div>
+      <p>Raw probe reading: <strong id="raw">--</strong></p>
+      <button id="moistureBtn" disabled>Lower, Check & Raise Probe</button>
+      <p class="muted small">Insert the probe into soil before checking.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Obstacle distance</h3>
+      <div class="metric" id="distance">-- cm</div>
+      <p id="obstacleState">Waiting for status...</p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h3>Automatic demo</h3>
+    <div class="row">
+      <button id="autoStart" disabled>Start Status Demo</button>
+      <button id="autoStop" disabled>Stop Auto Mode</button>
+    </div>
+    <p class="muted small">This demo reports status; it does not navigate or automatically water plants.</p>
+  </section>
+
+  <section class="panel">
+    <h3>Soil calibration</h3>
+    <div class="row">
+      <label>Dry raw value
+        <input id="dryValue" type="number" min="0" max="1023" value="850">
+      </label>
+      <label>Wet raw value
+        <input id="wetValue" type="number" min="0" max="1023" value="350">
+      </label>
+      <button id="setDry" disabled>Set Dry Value</button>
+      <button id="setWet" disabled>Set Wet Value</button>
+    </div>
+    <p class="muted small">Measure the probe in dry and wet soil first, then enter the actual raw values.</p>
+  </section>
+
+  <section class="panel">
+    <h3>Command terminal</h3>
+    <div class="row">
+      <input id="command" placeholder="e.g. STATUS" style="flex:1;min-width:180px">
+      <button id="send" disabled>Send Command</button>
+      <button id="clear">Clear Log</button>
+    </div>
+    <pre id="log">Ready. Connect to FARMINGROBOT.</pre>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const SERVICE = "0000ffe0-0000-1000-8000-00805f9b34fb";
+  const RX_TX = "0000ffe1-0000-1000-8000-00805f9b34fb";
+
+  let device = null;
+  let server = null;
+  let characteristic = null;
+  let connected = false;
+  let movementHeld = false;
+
+  const $ = id => document.getElementById(id);
+
+  function log(message) {
+    const box = $("log");
+    const time = new Date().toLocaleTimeString();
+    box.textContent += `\n[${time}] ${message}`;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setConnected(value) {
+    connected = value;
+    $("connection").textContent = value ? "Connected" : "Disconnected";
+    $("connection").className =
+      "status " + (value ? "connected" : "disconnected");
+
+    [
+      "statusBtn", "stop", "padStop", "waterOn", "waterOff",
+      "moistureBtn", "autoStart", "autoStop", "send",
+      "setDry", "setWet"
+    ].forEach(id => {
+      $(id).disabled = !value;
+    });
+  }
+
+  async function sendCommand(command) {
+    if (!connected || !characteristic) {
+      log("Not connected. Connect to FARMINGROBOT first.");
+      return;
+    }
+
+    try {
+      const data = new TextEncoder().encode(command + "\n");
+
+      if (characteristic.properties.write) {
+        await characteristic.writeValueWithResponse(data);
+      } else if (characteristic.properties.writeWithoutResponse) {
+        await characteristic.writeValueWithoutResponse(data);
+      } else {
+        throw new Error("FFE1 does not support writing.");
+      }
+
+      log("SENT: " + command);
+      updateOptimisticDisplay(command);
+    } catch (error) {
+      log("WRITE ERROR: " + error.name + " — " + error.message);
+    }
+  }
+
+  function updateOptimisticDisplay(command) {
+    if (["FORWARD", "BACKWARD", "LEFT", "RIGHT"].includes(command)) {
+      $("movement").textContent = "Movement command: " + command;
+    }
+    if (command === "STOP") {
+      $("movement").textContent = "Movement: stopped";
+    }
+    if (command === "WATER_ON") $("waterState").textContent = "Pump command: ON";
+    if (command === "WATER_OFF") $("waterState").textContent = "Pump command: OFF";
+  }
+
+  function handleMessage(message) {
+    log("RECEIVED: " + message);
+
+    for (const line of message.split(/\r?\n/)) {
+      const sep = line.indexOf(":");
+      if (sep < 0) continue;
+
+      const key = line.slice(0, sep).trim();
+      const value = line.slice(sep + 1).trim();
+
+      if (key === "SOIL_RAW") $("raw").textContent = value;
+      if (key === "MOISTURE_PERCENT") $("moisture").textContent = value + "%";
+      if (key === "DISTANCE_CM") {
+        $("distance").textContent =
+          value === "-1" ? "-- cm" : value + " cm";
+      }
+      if (key === "WATER") $("waterState").textContent = "Pump state: " + value;
+      if (key === "OBSTACLE") $("obstacleState").textContent = value;
+      if (key === "MOTOR") $("movement").textContent = value;
+    }
+  }
+
+  async function connect() {
+    try {
+      if (!navigator.bluetooth) {
+        throw new Error("Web Bluetooth unavailable. Use supported Chrome on localhost or HTTPS.");
+      }
+
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: "FARMINGROBOT" }],
+        optionalServices: [SERVICE]
+      });
+
+      device.addEventListener("gattserverdisconnected", onDisconnected);
+
+      log("Selected: " + (device.name || "Unnamed device"));
+      server = await device.gatt.connect();
+
+      const service = await server.getPrimaryService(SERVICE);
+      characteristic = await service.getCharacteristic(RX_TX);
+
+      if (characteristic.properties.notify) {
+        await characteristic.startNotifications();
+        characteristic.addEventListener(
+          "characteristicvaluechanged",
+          event => {
+            const value = event.target.value;
+            const bytes = new Uint8Array(
+              value.buffer,
+              value.byteOffset,
+              value.byteLength
+            );
+            handleMessage(new TextDecoder().decode(bytes));
+          }
+        );
+      } else {
+        log("Warning: FFE1 does not support notifications.");
+      }
+
+      setConnected(true);
+      log("Connected to FARMINGROBOT; FFE1 ready.");
+      await sendCommand("STATUS");
+    } catch (error) {
+      setConnected(false);
+      log("CONNECT ERROR: " + error.name + " — " + error.message);
+    }
+  }
+
+  function onDisconnected() {
+    characteristic = null;
+    server = null;
+    setConnected(false);
+    log("BLE disconnected.");
+  }
+
+  async function disconnect() {
+    if (device && device.gatt && device.gatt.connected) {
+      device.gatt.disconnect();
+    }
+    characteristic = null;
+    server = null;
+    setConnected(false);
+    log("Disconnected by user.");
+  }
+
+  // On-screen controls send movement commands.
+  document.querySelectorAll("[data-move]").forEach(button => {
+    button.addEventListener("click", () => {
+      sendCommand(button.dataset.move);
+    });
+  });
+
+  // Keyboard controls. Ignore typing in inputs.
+  document.addEventListener("keydown", event => {
+    if (event.repeat) return;
+    if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+
+    const keys = {
+      ArrowUp: "FORWARD",
+      ArrowDown: "BACKWARD",
+      ArrowLeft: "LEFT",
+      ArrowRight: "RIGHT",
+      " ": "STOP"
+    };
+
+    const command = keys[event.key];
+    if (command) {
+      event.preventDefault();
+      sendCommand(command);
+    }
+  });
+
+  // Releasing an arrow key stops the robot for safer momentary control.
+  document.addEventListener("keyup", event => {
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      sendCommand("STOP");
+    }
+  });
+
+  $("connect").addEventListener("click", connect);
+  $("disconnect").addEventListener("click", disconnect);
+  $("statusBtn").addEventListener("click", () => sendCommand("STATUS"));
+  $("stop").addEventListener("click", () => sendCommand("STOP"));
+  $("padStop").addEventListener("click", () => sendCommand("STOP"));
+  $("waterOn").addEventListener("click", () => sendCommand("WATER_ON"));
+  $("waterOff").addEventListener("click", () => sendCommand("WATER_OFF"));
+  $("moistureBtn").addEventListener("click", () => sendCommand("MOISTURE_CHECK"));
+  $("autoStart").addEventListener("click", () => sendCommand("AUTO_START"));
+  $("autoStop").addEventListener("click", () => sendCommand("AUTO_STOP"));
+
+  $("setDry").addEventListener("click", () => {
+    const value = Number($("dryValue").value);
+    if (Number.isInteger(value) && value >= 0 && value <= 1023) {
+      sendCommand("SOIL_DRY:" + value);
+    } else {
+      log("Dry value must be from 0 to 1023.");
+    }
+  });
+
+  $("setWet").addEventListener("click", () => {
+    const value = Number($("wetValue").value);
+    if (Number.isInteger(value) && value >= 0 && value <= 1023) {
+      sendCommand("SOIL_WET:" + value);
+    } else {
+      log("Wet value must be from 0 to 1023.");
+    }
+  });
+
+  $("send").addEventListener("click", () => {
+    const command = $("command").value.trim();
+    if (command) sendCommand(command);
+  });
+
+  $("command").addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      $("send").click();
+    }
+  });
+
+  $("clear").addEventListener("click", () => {
+    $("log").textContent = "Log cleared.";
+  });
+
+  setConnected(false);
+})();
+</script>
+</body>
+</html>
