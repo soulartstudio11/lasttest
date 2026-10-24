@@ -1,0 +1,290 @@
+Great! Since the browser diagnostic now works, we'll build the complete Farming Robot controller around the BLE connection that we verified.
+
+We'll do it in this order:
+1. Hardware connections for the Arduino, L298N, Bluetooth module, soil sensor, servo, ultrasonic sensor, and water-pump relay.
+2. Complete Arduino code that prints every received Bluetooth command to the Serial Monitor and sends status/replies back over BLE.
+3. Complete HTML controller with keyboard arrows, on-screen arrow buttons, water ON/OFF, moisture checking, obstacle detection, and automatic stop controls.
+1. Wiring connections
+Use these pin assignments for the code below. Turn off the power before changing any wiring.
+Bluetooth module — BLE UART
+BLE module	Arduino Uno
+TX	D10
+RX	D11
+GND	GND
+VCC	Module's rated supply voltage
+
+Important: Arduino D11 outputs 5 V logic. If your BLE module's RX pin is rated for 3.3 V only, use a suitable level shifter or voltage divider between Arduino D11 and BLE RX. Do not assume every module's RX is 5 V tolerant.
+L298N motor driver
+Keep the ENA and ENB jumpers installed, as you said you have them.
+L298N	Arduino Uno
+IN1	D2
+IN2	D3
+IN3	D4
+IN4	D7
+ENA / ENB	Keep jumpers installed
+GND	Arduino GND / common ground
+OUT1, OUT2	Left motor
+OUT3, OUT4	Right motor
+Motor power input	Suitable external motor supply
+
+The motor supply voltage must match your motors and driver. Don't power the motors from an Arduino GPIO pin.
+HC-SR04 ultrasonic sensor
+HC-SR04 pin	Arduino Uno
+VCC	5V
+GND	GND
+TRIG	D5
+ECHO	D6
+
+This sensor measures the distance in front of the robot to help detect obstacles.
+Soil moisture sensor
+Sensor pin	Arduino Uno
+AO	A0
+VCC	5V, if supported by your module
+GND	GND
+
+Use the sensor's analog output (AO) so the code can read a moisture value. The exact dry/wet values will need calibration with your particular sensor.
+Servo motor for lowering and raising the soil probe
+Servo wire	Connection
+Signal (usually orange/yellow)	D9
+VCC (usually red)	Suitable 5 V supply
+GND (usually brown/black)	Common GND
+
+A separate regulated 5 V supply is recommended if the servo draws significant current. Connect its ground to Arduino GND. Do not let the servo's power demand reset the Arduino.
+Water pump relay module
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Reference images only. Check the labels on your actual relay module.
+
+Relay control side
+Relay module	Connection
+IN / S	Arduino D8
+VCC	5V, if the relay module is rated for 5V
+GND	Arduino GND
+
+Pump power side
+
+For a typical two-wire DC pump, switch the positive supply using the relay:
+External pump supply (+)
+
+
+Relay COM terminal
+
+
+Relay NO terminal
+
+
+Pump positive (+)
+
+
+Pump negative (−) connects to the external pump supply negative (−).
+
+- Use COM and NO (normally open) so the pump is off when the relay is inactive.
+- The pump must use a separate supply rated for its voltage and current.
+- Verify that the relay contacts are rated for the pump's startup current. Keep water away from exposed electrical connections.
+- Some relay modules are active-low, meaning a LOW signal turns the relay on. We'll account for that in the Arduino code and make the setting easy to change.
+- Never connect the pump directly to an Arduino pin.
+Before we write the code
+Check these connections against your actual hardware. The planned pin map is:
+Function	Pin
+Bluetooth UART RX / TX	D10 / D11
+L298N IN1, IN2, IN3, IN4	D2, D3, D4, D7
+Ultrasonic TRIG / ECHO	D5 / D6
+Relay	D8
+Servo signal	D9
+Moisture analog output	A0
+
+Once the wiring matches, I'll provide the complete Arduino sketch and full HTML controller using these pins, including Serial Monitor logging of every received command, BLE replies, keyboard and screen controls, moisture-check sequencing, and water-pump ON/OFF.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+moisutr onlu 2 legs for connection and i said the moisute is 2 leg moisture
+
+
+
+
+
+
+
+
+
+
+
+
+
+Got it — your soil moisture sensor is the two-leg probe, not the three-pin module with AO/VCC/GND.
+Correct connection for your two-leg moisture probe
+
+
+
+
+
+
+
+
+
+Two-leg resistive soil moisture probe
+
+The two metal legs are inserted into the soil. The probe measures electrical conductivity between them; it does not have separate VCC, GND, or AO pins.
+
+
+Important: If yours is just a bare two-leg probe, don't connect the legs directly to 5V and GND continuously. That can cause corrosion and unreliable readings.
+
+To connect it to the Arduino, I need to confirm which type you have:
+
+Two metal legs with only two wires and no circuit board
+
+Two metal legs attached to a small sensor board with pins
+
+Two separate metal probes that I made myself
+
+Confirm sensor type
+Once you confirm, I'll give you the correct wiring for your exact two-leg sensor before writing the full code.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+My Farming Robot moisture sensor type is: bare two-leg probe with two wires and no circuit board. Give the correct safe Arduino wiring and update the full Arduino and HTML controller code accordingly.
+
+
+
+
+
+
+
+
+
+
+
+
+Worked for 1m 9s
+Built the controller
+
+
+
+
+
+
+
+
+
+
+Understood. Your sensor is a bare, two-leg resistive soil-moisture probe with no circuit board. We'll connect it directly to the Arduino through a current-limiting resistor and use a spare digital pin to power the measurement only briefly. This reduces corrosion compared with leaving DC current flowing through the probe continuously.
+
+I'll keep your existing Farming Robot hardware and pin assignments, and update both the Arduino firmware and the browser controller.
+1. Correct wiring for the two-leg moisture probe
+
+
+
+
+
+
+
+
+
+Probe leg 1 → Arduino A0
+
+This is the analog measurement point.
+
+
+
+
+
+
+
+
+
+
+
+
+10 kΩ resistor → between Arduino 5V and A0
+
+This acts as a pull-up and limits current through the probe.
+
+
+
+
+
+
+
+
+
+
+
+
+Probe leg 2 → Arduino D12
+
+The firmware briefly sets D12 LOW to take a reading, then returns it to input mode.
+
+
+
+Wire it like this:
+Arduino 5V
+    |
+  [10 kΩ]
+    |
+    +---------- Arduino A0
+    |
+  Probe leg 1
+  [SOIL PROBE]
+  Probe leg 2
+    |
+Arduino D12
+
+
+Do not connect either probe leg directly to 5V or GND. The circuit above uses D12 as a switched measurement connection. Keep the probe away from the robot's water-pump wiring and wet electrical connections.
+2. Full Arduino code
+This version uses your existing pins:
+Component	Arduino pins
+BLE UART	D10 (RX), D11 (TX)
+L298N	D2, D3, D4, D7
+Ultrasonic sensor	D5, D6
+Pump relay	D8
+Probe-lowering servo	D9
+Two-leg moisture probe	A0 and D12
+
+Install the Servo library if your Arduino IDE does not already include it. Select Arduino Uno
